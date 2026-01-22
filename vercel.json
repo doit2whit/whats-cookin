@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/**/*.ts": {
+      "includeFiles": "api/lib/**"
+    }
+  },
   "rewrites": [
     { "source": "/api/auth/login", "destination": "/api/auth?action=login" },
     { "source": "/api/auth/logout", "destination": "/api/auth?action=logout" },
