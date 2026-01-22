@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ShoppingCart, Plus, Check, Copy, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { ShoppingCart, Plus, Copy, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Button from '@/components/ui/Button'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import Modal from '@/components/ui/Modal'
 import { useMeals } from '@/hooks/useMeals'
-import type { Meal, ShoppingList, ShoppingListItem, StoreSection } from '@/types'
+import type { ShoppingList, ShoppingListItem, StoreSection } from '@/types'
 
 interface ShoppingListWithItems extends ShoppingList {
   items: (ShoppingListItem & { ingredientName: string })[]
