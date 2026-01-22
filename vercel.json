@@ -1,6 +1,15 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/auth/login", "destination": "/api/auth?action=login" },
+    { "source": "/api/auth/logout", "destination": "/api/auth?action=logout" },
+    { "source": "/api/auth/session", "destination": "/api/auth?action=session" },
+    { "source": "/api/calendar/:id", "destination": "/api/calendar?id=:id" },
+    { "source": "/api/cuisines", "destination": "/api/cuisines" },
+    { "source": "/api/ingredients/autocomplete", "destination": "/api/ingredients" },
+    { "source": "/api/meals/autocomplete", "destination": "/api/meals?action=autocomplete" },
+    { "source": "/api/meals/:id", "destination": "/api/meals?id=:id" },
+    { "source": "/api/shopping-lists/generate", "destination": "/api/shopping-lists?action=generate" },
+    { "source": "/api/shopping-lists/:id/items/:itemId", "destination": "/api/shopping-lists?id=:id&itemId=:itemId" },
+    { "source": "/api/shopping-lists/:id", "destination": "/api/shopping-lists?id=:id" }
   ]
 }
