@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-neutral-50 text-neutral-800 font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-neutral-200 text-neutral-700 hover:bg-neutral-300 focus:ring-neutral-400;
+  }
+
+  .btn-outline {
+    @apply btn border-2 border-primary-600 text-primary-600 hover:bg-primary-50 focus:ring-primary-500;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-shadow duration-200;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-neutral-700 mb-1;
+  }
+
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-neutral-200 p-4;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-restaurant {
+    @apply badge bg-restaurant/10 text-restaurant;
+  }
+
+  .badge-friends {
+    @apply badge bg-friends/10 text-friends;
+  }
+
+  .badge-favorite {
+    @apply badge bg-favorite/10 text-favorite;
+  }
+
+  .badge-quick {
+    @apply badge bg-quick/10 text-quick;
+  }
+
+  .badge-leftovers {
+    @apply badge bg-primary-100 text-primary-700;
+  }
+}
+
+/* Hand-drawn style borders */
+@layer utilities {
+  .border-sketch {
+    border-radius: 255px 15px 225px 15px/15px 225px 15px 255px;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-neutral-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-neutral-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-neutral-400;
+}
