@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { requireAuth } from '../lib/auth'
-import { getRows, deleteRow, SHEETS } from '../lib/sheets'
-import type { ShoppingList, ShoppingListItem, Ingredient } from '../../src/types'
+import { getRows, SHEETS } from '../lib/sheets'
 
 const LIST_COL = {
   ID: 0,
@@ -52,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const expiredListIds: string[] = []
 
     // Process lists, tracking expired ones for lazy deletion
-    listRows.slice(1).forEach((row, index) => {
+    listRows.slice(1).forEach((row) => {
       const expiresAt = new Date(row[LIST_COL.EXPIRES_AT])
 
       if (expiresAt < now) {
