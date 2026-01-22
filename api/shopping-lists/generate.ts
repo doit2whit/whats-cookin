@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { v4 as uuid } from 'uuid'
 import { requireAuth } from '../lib/auth'
 import { getRows, appendRow, SHEETS } from '../lib/sheets'
-import type { StoreSection, Unit } from '../../src/types'
+import type { StoreSection } from '../../src/types'
 
 const MEAL_ING_COL = {
   ID: 0,
