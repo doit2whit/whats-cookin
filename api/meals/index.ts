@@ -117,7 +117,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (!ingredient.name?.trim()) continue
 
           // Check if ingredient exists
-          const ingredientRows = await getRows(SHEETS.INGREDIENTS)
           let ingredientId = ingredient.ingredientId
 
           if (!ingredientId) {
