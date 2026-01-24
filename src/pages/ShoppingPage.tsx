@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { ShoppingCart, Check, Copy, Plus, Trash2, Search, ChevronDown, ChevronUp, Package, Sparkles } from 'lucide-react'
+import { ShoppingCart, Check, Copy, Plus, Trash2, Search, Package, Sparkles } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { Meal, ShoppingList, ShoppingListItem, StoreSection } from '@/types'
 import Button from '@/components/ui/Button'
