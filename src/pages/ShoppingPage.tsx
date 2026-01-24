@@ -1,171 +1,243 @@
-import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ShoppingCart, Plus, Copy, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
-import toast from 'react-hot-toast'
+import { useState, useEffect, useMemo } from 'react'
+import { ShoppingCart, Check, Copy, Plus, Trash2, Search, ChevronDown, ChevronUp, Package, Sparkles } from 'lucide-react'
+import { clsx } from 'clsx'
+import type { Meal, ShoppingList, ShoppingListItem, StoreSection } from '@/types'
 import Button from '@/components/ui/Button'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
-import Modal from '@/components/ui/Modal'
-import { useMeals } from '@/hooks/useMeals'
-import type { ShoppingList, ShoppingListItem, StoreSection } from '@/types'
 
-interface ShoppingListWithItems extends ShoppingList {
-  items: (ShoppingListItem & { ingredientName: string })[]
-}
+const SECTION_ORDER: StoreSection[] = ['produce', 'dairy', 'meat', 'bakery', 'frozen', 'pantry', 'beverages', 'other']
 
-async function fetchShoppingLists(): Promise<ShoppingListWithItems[]> {
-  const response = await fetch('/api/shopping-lists')
-  if (!response.ok) throw new Error('Failed to fetch shopping lists')
-  const data = await response.json()
-  return data.lists
-}
-
-async function generateShoppingList(mealIds: string[]): Promise<ShoppingListWithItems> {
-  const response = await fetch('/api/shopping-lists/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mealIds }),
-  })
-  if (!response.ok) throw new Error('Failed to generate shopping list')
-  const data = await response.json()
-  return data.list
-}
-
-async function toggleItemChecked(listId: string, itemId: string, checked: boolean): Promise<void> {
-  const response = await fetch(`/api/shopping-lists/${listId}/items/${itemId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ isChecked: checked }),
-  })
-  if (!response.ok) throw new Error('Failed to update item')
-}
-
-async function deleteShoppingList(id: string): Promise<void> {
-  const response = await fetch(`/api/shopping-lists/${id}`, { method: 'DELETE' })
-  if (!response.ok) throw new Error('Failed to delete list')
-}
-
-const SECTION_ORDER: StoreSection[] = [
-  'produce', 'meat', 'dairy', 'bakery', 'frozen', 'pantry', 'beverages', 'other'
-]
-
-const SECTION_LABELS: Record<StoreSection, string> = {
-  produce: '🥬 Produce',
-  meat: '🥩 Meat & Seafood',
-  dairy: '🥛 Dairy',
-  bakery: '🥖 Bakery',
-  frozen: '🧊 Frozen',
-  pantry: '🥫 Pantry',
-  beverages: '🥤 Beverages',
-  other: '📦 Other',
+const SECTION_NAMES: Record<StoreSection, string> = {
+  produce: 'Produce',
+  dairy: 'Dairy',
+  meat: 'Meat & Seafood',
+  pantry: 'Pantry',
+  frozen: 'Frozen',
+  bakery: 'Bakery',
+  beverages: 'Beverages',
+  other: 'Other',
 }
 
 export default function ShoppingPage() {
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [selectedMeals, setSelectedMeals] = useState<string[]>([])
-  const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set())
-  const queryClient = useQueryClient()
+  const [lists, setLists] = useState<ShoppingList[]>([])
+  const [activeList, setActiveList] = useState<ShoppingList | null>(null)
+  const [listItems, setListItems] = useState<ShoppingListItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingItems, setLoadingItems] = useState(false)
+  const [generating, setGenerating] = useState(false)
 
-  const { data: lists = [], isLoading } = useQuery({
-    queryKey: ['shopping-lists'],
-    queryFn: fetchShoppingLists,
-  })
+  // New list form state
+  const [showNewListForm, setShowNewListForm] = useState(false)
+  const [mealSearch, setMealSearch] = useState('')
+  const [mealSuggestions, setMealSuggestions] = useState<Meal[]>([])
+  const [selectedMeals, setSelectedMeals] = useState<Meal[]>([])
+  const [excludeCommonItems, setExcludeCommonItems] = useState(true) // Default to excluding spices/common items
 
-  const { meals } = useMeals()
-  const homemadeMeals = meals.filter(m => m.mealType === 'homemade')
+  const [copiedFeedback, setCopiedFeedback] = useState(false)
 
-  const generateMutation = useMutation({
-    mutationFn: generateShoppingList,
-    onSuccess: (newList) => {
-      queryClient.invalidateQueries({ queryKey: ['shopping-lists'] })
-      setShowCreateModal(false)
-      setSelectedMeals([])
-      setExpandedLists(prev => new Set([...prev, newList.id]))
-      toast.success('Shopping list created!')
-    },
-    onError: () => {
-      toast.error('Failed to create shopping list')
-    },
-  })
+  // Fetch lists
+  useEffect(() => {
+    fetchLists()
+  }, [])
 
-  const toggleMutation = useMutation({
-    mutationFn: ({ listId, itemId, checked }: { listId: string; itemId: string; checked: boolean }) =>
-      toggleItemChecked(listId, itemId, checked),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shopping-lists'] })
-    },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteShoppingList,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shopping-lists'] })
-      toast.success('List deleted')
-    },
-  })
-
-  const toggleMealSelection = (mealId: string) => {
-    setSelectedMeals(prev => {
-      if (prev.includes(mealId)) {
-        return prev.filter(id => id !== mealId)
+  const fetchLists = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/shopping-lists')
+      if (res.ok) {
+        const data = await res.json()
+        setLists(data.lists || [])
+        // Auto-select most recent list
+        if (data.lists && data.lists.length > 0) {
+          setActiveList(data.lists[0])
+        }
       }
-      if (prev.length >= 4) {
-        toast.error('Maximum 4 meals per list')
-        return prev
-      }
-      return [...prev, mealId]
-    })
-  }
-
-  const handleGenerate = () => {
-    if (selectedMeals.length === 0) {
-      toast.error('Select at least one meal')
-      return
+    } catch (e) {
+      console.error('Failed to fetch shopping lists:', e)
+    } finally {
+      setLoading(false)
     }
-    generateMutation.mutate(selectedMeals)
   }
 
-  const copyToClipboard = (list: ShoppingListWithItems) => {
-    const groupedItems = groupBySection(list.items)
-    let text = '🛒 Shopping List\n\n'
+  // Fetch items for active list
+  useEffect(() => {
+    if (activeList) {
+      fetchListItems(activeList.id)
+    } else {
+      setListItems([])
+    }
+  }, [activeList])
+
+  const fetchListItems = async (listId: string) => {
+    setLoadingItems(true)
+    try {
+      const res = await fetch(`/api/shopping-lists/${listId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setListItems(data.items || [])
+      }
+    } catch (e) {
+      console.error('Failed to fetch list items:', e)
+    } finally {
+      setLoadingItems(false)
+    }
+  }
+
+  // Search meals
+  useEffect(() => {
+    if (mealSearch.length > 0) {
+      const searchMeals = async () => {
+        try {
+          const res = await fetch(`/api/meals/autocomplete?q=${encodeURIComponent(mealSearch)}`)
+          if (res.ok) {
+            const data = await res.json()
+            // Filter out already selected meals
+            const filtered = (data.meals || []).filter(
+              (m: Meal) => !selectedMeals.some(sm => sm.id === m.id)
+            )
+            setMealSuggestions(filtered)
+          }
+        } catch (e) {
+          console.error('Failed to search meals:', e)
+        }
+      }
+      searchMeals()
+    } else {
+      setMealSuggestions([])
+    }
+  }, [mealSearch, selectedMeals])
+
+  const addMealToSelection = (meal: Meal) => {
+    if (selectedMeals.length < 4) {
+      setSelectedMeals(prev => [...prev, meal])
+    }
+    setMealSearch('')
+    setMealSuggestions([])
+  }
+
+  const removeMealFromSelection = (mealId: string) => {
+    setSelectedMeals(prev => prev.filter(m => m.id !== mealId))
+  }
+
+  const generateList = async () => {
+    if (selectedMeals.length === 0) return
+
+    setGenerating(true)
+    try {
+      const res = await fetch('/api/shopping-lists/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mealIds: selectedMeals.map(m => m.id),
+          name: selectedMeals.map(m => m.name).join(', '),
+          excludeCommonItems, // Pass the toggle value
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        // Refresh lists and select the new one
+        await fetchLists()
+        setActiveList(data.list)
+        setShowNewListForm(false)
+        setSelectedMeals([])
+      }
+    } catch (e) {
+      console.error('Failed to generate list:', e)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const toggleItemChecked = async (item: ShoppingListItem) => {
+    // Optimistic update
+    setListItems(prev =>
+      prev.map(i => (i.id === item.id ? { ...i, isChecked: !i.isChecked } : i))
+    )
+
+    try {
+      await fetch(`/api/shopping-lists/${activeList?.id}/items/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isChecked: !item.isChecked }),
+      })
+    } catch (e) {
+      // Revert on error
+      setListItems(prev =>
+        prev.map(i => (i.id === item.id ? { ...i, isChecked: item.isChecked } : i))
+      )
+      console.error('Failed to update item:', e)
+    }
+  }
+
+  const deleteList = async (listId: string) => {
+    try {
+      await fetch(`/api/shopping-lists/${listId}`, { method: 'DELETE' })
+      setLists(prev => prev.filter(l => l.id !== listId))
+      if (activeList?.id === listId) {
+        setActiveList(lists.find(l => l.id !== listId) || null)
+      }
+    } catch (e) {
+      console.error('Failed to delete list:', e)
+    }
+  }
+
+  // Group items by section
+  const itemsBySection = useMemo(() => {
+    const grouped: Record<StoreSection, ShoppingListItem[]> = {
+      produce: [],
+      dairy: [],
+      meat: [],
+      pantry: [],
+      frozen: [],
+      bakery: [],
+      beverages: [],
+      other: [],
+    }
+
+    listItems.forEach(item => {
+      const section = item.storeSection || 'other'
+      if (grouped[section]) {
+        grouped[section].push(item)
+      } else {
+        grouped.other.push(item)
+      }
+    })
+
+    // Sort items within each section by display order, then alphabetically
+    Object.keys(grouped).forEach(section => {
+      grouped[section as StoreSection].sort((a, b) => {
+        if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder
+        return (a.ingredientName || '').localeCompare(b.ingredientName || '')
+      })
+    })
+
+    return grouped
+  }, [listItems])
+
+  const copyToClipboard = () => {
+    const lines: string[] = []
 
     SECTION_ORDER.forEach(section => {
-      const items = groupedItems[section]
-      if (items && items.length > 0) {
-        text += `${SECTION_LABELS[section]}\n`
+      const items = itemsBySection[section]
+      if (items.length > 0) {
+        lines.push(`\n${SECTION_NAMES[section]}:`)
         items.forEach(item => {
-          const checkbox = item.isChecked ? '☑' : '☐'
-          text += `${checkbox} ${item.combinedQuantity} ${item.ingredientName}\n`
+          const checkmark = item.isChecked ? '✓' : '○'
+          lines.push(`${checkmark} ${item.combinedQuantity} ${item.ingredientName || 'Unknown'}`)
         })
-        text += '\n'
       }
     })
 
-    navigator.clipboard.writeText(text)
-    toast.success('Copied to clipboard!')
+    navigator.clipboard.writeText(lines.join('\n').trim())
+    setCopiedFeedback(true)
+    setTimeout(() => setCopiedFeedback(false), 2000)
   }
 
-  const toggleListExpanded = (listId: string) => {
-    setExpandedLists(prev => {
-      const next = new Set(prev)
-      if (next.has(listId)) {
-        next.delete(listId)
-      } else {
-        next.add(listId)
-      }
-      return next
-    })
-  }
+  const uncheckedCount = listItems.filter(i => !i.isChecked).length
+  const totalCount = listItems.length
 
-  const groupBySection = (items: ShoppingListWithItems['items']) => {
-    return items.reduce((acc, item) => {
-      const section = item.storeSection
-      if (!acc[section]) acc[section] = []
-      acc[section].push(item)
-      return acc
-    }, {} as Record<StoreSection, typeof items>)
-  }
-
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex justify-center py-12">
         <LoadingSpinner size="lg" />
@@ -175,197 +247,254 @@ export default function ShoppingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-display font-bold text-neutral-800">
-          Shopping Lists
-        </h1>
-        <Button onClick={() => setShowCreateModal(true)} leftIcon={<Plus className="w-4 h-4" />}>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <ShoppingCart className="w-6 h-6 text-primary-600" />
+          <h1 className="text-2xl font-display font-bold text-neutral-800">Shopping Lists</h1>
+        </div>
+        <Button
+          variant="primary"
+          onClick={() => setShowNewListForm(true)}
+          leftIcon={<Plus className="w-4 h-4" />}
+        >
           New List
         </Button>
       </div>
 
-      {lists.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl border border-neutral-200">
-          <ShoppingCart className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-neutral-700 mb-2">No shopping lists yet</h3>
-          <p className="text-neutral-500 mb-4">
-            Create a list by selecting meals you want to cook
-          </p>
-          <Button onClick={() => setShowCreateModal(true)} leftIcon={<Plus className="w-4 h-4" />}>
-            Create Your First List
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {lists.map(list => {
-            const isExpanded = expandedLists.has(list.id)
-            const groupedItems = groupBySection(list.items)
-            const checkedCount = list.items.filter(i => i.isChecked).length
-            const totalCount = list.items.length
+      {/* New List Form */}
+      {showNewListForm && (
+        <div className="bg-white rounded-xl border border-neutral-200 p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium text-neutral-800">Create Shopping List</h2>
+            <button
+              onClick={() => {
+                setShowNewListForm(false)
+                setSelectedMeals([])
+              }}
+              className="text-neutral-400 hover:text-neutral-600"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
 
-            return (
-              <div key={list.id} className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
-                {/* Header */}
+          {/* Selected meals */}
+          {selectedMeals.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {selectedMeals.map(meal => (
                 <div
-                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-neutral-50"
-                  onClick={() => toggleListExpanded(list.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    {isExpanded ? (
-                      <ChevronUp className="w-5 h-5 text-neutral-400" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-neutral-400" />
-                    )}
-                    <div>
-                      <h3 className="font-medium text-neutral-800">
-                        {list.name || `List from ${new Date(list.createdAt).toLocaleDateString()}`}
-                      </h3>
-                      <p className="text-sm text-neutral-500">
-                        {checkedCount}/{totalCount} items • Expires {new Date(list.expiresAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => copyToClipboard(list)}
-                      leftIcon={<Copy className="w-4 h-4" />}
-                    >
-                      Copy
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        if (confirm('Delete this shopping list?')) {
-                          deleteMutation.mutate(list.id)
-                        }
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4 text-neutral-400" />
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Items */}
-                {isExpanded && (
-                  <div className="border-t border-neutral-200 p-4 space-y-4">
-                    {SECTION_ORDER.map(section => {
-                      const items = groupedItems[section]
-                      if (!items || items.length === 0) return null
-
-                      return (
-                        <div key={section}>
-                          <h4 className="text-sm font-medium text-neutral-600 mb-2">
-                            {SECTION_LABELS[section]}
-                          </h4>
-                          <div className="space-y-1">
-                            {items.map(item => (
-                              <label
-                                key={item.id}
-                                className={`flex items-center gap-3 p-2 rounded-lg hover:bg-neutral-50 cursor-pointer ${
-                                  item.isChecked ? 'opacity-60' : ''
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={item.isChecked}
-                                  onChange={(e) => {
-                                    toggleMutation.mutate({
-                                      listId: list.id,
-                                      itemId: item.id,
-                                      checked: e.target.checked,
-                                    })
-                                  }}
-                                  className="w-5 h-5 rounded text-primary-600 focus:ring-primary-500"
-                                />
-                                <span className={item.isChecked ? 'line-through text-neutral-400' : ''}>
-                                  <span className="font-medium">{item.combinedQuantity}</span>{' '}
-                                  {item.ingredientName}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Create List Modal */}
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => {
-          setShowCreateModal(false)
-          setSelectedMeals([])
-        }}
-        title="Create Shopping List"
-        size="md"
-      >
-        <div className="space-y-4">
-          <p className="text-neutral-600">
-            Select 1-4 meals to generate a shopping list from their ingredients.
-          </p>
-
-          {homemadeMeals.length === 0 ? (
-            <p className="text-center py-8 text-neutral-500">
-              No homemade meals with ingredients found. Add some meals first!
-            </p>
-          ) : (
-            <div className="max-h-[300px] overflow-y-auto space-y-2">
-              {homemadeMeals.map(meal => (
-                <label
                   key={meal.id}
-                  className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                    selectedMeals.includes(meal.id)
-                      ? 'border-primary-500 bg-primary-50'
-                      : 'border-neutral-200 hover:border-neutral-300'
-                  }`}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-primary-50 border border-primary-200 rounded-lg text-sm"
                 >
-                  <input
-                    type="checkbox"
-                    checked={selectedMeals.includes(meal.id)}
-                    onChange={() => toggleMealSelection(meal.id)}
-                    className="w-5 h-5 rounded text-primary-600 focus:ring-primary-500"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-neutral-800 truncate">{meal.name}</p>
-                    {meal.cuisineType.length > 0 && (
-                      <p className="text-sm text-neutral-500">{meal.cuisineType.join(', ')}</p>
-                    )}
-                  </div>
-                </label>
+                  <span className="font-medium text-primary-700">{meal.name}</span>
+                  <button
+                    onClick={() => removeMealFromSelection(meal.id)}
+                    className="text-primary-400 hover:text-primary-600"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               ))}
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-neutral-200">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setShowCreateModal(false)
-                setSelectedMeals([])
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleGenerate}
-              isLoading={generateMutation.isPending}
-              disabled={selectedMeals.length === 0}
-            >
-              Generate List ({selectedMeals.length} meal{selectedMeals.length !== 1 ? 's' : ''})
-            </Button>
-          </div>
+          {/* Meal search */}
+          {selectedMeals.length < 4 && (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+              <input
+                type="text"
+                value={mealSearch}
+                onChange={(e) => setMealSearch(e.target.value)}
+                placeholder={`Add meal (${selectedMeals.length}/4)...`}
+                className="input pl-9"
+              />
+              {mealSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-neutral-200 rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto">
+                  {mealSuggestions.map(meal => (
+                    <button
+                      key={meal.id}
+                      type="button"
+                      onClick={() => addMealToSelection(meal)}
+                      className="w-full text-left px-3 py-2 hover:bg-neutral-50 flex items-center justify-between"
+                    >
+                      <span>{meal.name}</span>
+                      {meal.cuisineType && meal.cuisineType.length > 0 && (
+                        <span className="text-xs text-neutral-400">
+                          {meal.cuisineType.slice(0, 2).join(', ')}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Exclude common items toggle */}
+          <label className="flex items-center gap-3 cursor-pointer py-2 px-3 bg-neutral-50 rounded-lg">
+            <input
+              type="checkbox"
+              checked={excludeCommonItems}
+              onChange={(e) => setExcludeCommonItems(e.target.checked)}
+              className="w-4 h-4 rounded text-primary-600 focus:ring-primary-500"
+            />
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <span className="text-sm font-medium text-neutral-700">
+                Exclude spices & common items
+              </span>
+            </div>
+            <span className="text-xs text-neutral-400 ml-auto">
+              (salt, pepper, olive oil, etc.)
+            </span>
+          </label>
+
+          <Button
+            variant="primary"
+            onClick={generateList}
+            disabled={selectedMeals.length === 0 || generating}
+            className="w-full"
+          >
+            {generating ? (
+              <>
+                <LoadingSpinner size="sm" />
+                <span className="ml-2">Generating...</span>
+              </>
+            ) : (
+              `Generate List (${selectedMeals.length} meal${selectedMeals.length !== 1 ? 's' : ''})`
+            )}
+          </Button>
         </div>
-      </Modal>
+      )}
+
+      {/* List selector */}
+      {lists.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {lists.map(list => (
+            <button
+              key={list.id}
+              onClick={() => setActiveList(list)}
+              className={clsx(
+                'px-3 py-2 rounded-lg border text-sm transition-colors',
+                activeList?.id === list.id
+                  ? 'bg-primary-50 border-primary-300 text-primary-700'
+                  : 'border-neutral-200 hover:border-neutral-300'
+              )}
+            >
+              <div className="font-medium truncate max-w-[150px]">{list.name}</div>
+              <div className="text-xs text-neutral-400">
+                {new Date(list.createdAt).toLocaleDateString()}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Active list */}
+      {activeList ? (
+        <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+          {/* List header */}
+          <div className="flex items-center justify-between p-4 border-b border-neutral-200 bg-neutral-50">
+            <div>
+              <h2 className="font-medium text-neutral-800">{activeList.name}</h2>
+              <p className="text-xs text-neutral-400">
+                {uncheckedCount} of {totalCount} remaining
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={copyToClipboard}
+                leftIcon={copiedFeedback ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              >
+                {copiedFeedback ? 'Copied!' : 'Copy'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => deleteList(activeList.id)}
+                className="text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* List items */}
+          {loadingItems ? (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner size="sm" />
+            </div>
+          ) : listItems.length === 0 ? (
+            <div className="text-center py-8 text-neutral-500">
+              <Package className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No items in this list</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-neutral-100">
+              {SECTION_ORDER.map(section => {
+                const items = itemsBySection[section]
+                if (items.length === 0) return null
+
+                return (
+                  <div key={section} className="p-4">
+                    <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wide mb-3">
+                      {SECTION_NAMES[section]}
+                    </h3>
+                    <div className="space-y-2">
+                      {items.map(item => (
+                        <button
+                          key={item.id}
+                          onClick={() => toggleItemChecked(item)}
+                          className={clsx(
+                            'w-full flex items-center gap-3 p-2 rounded-lg transition-colors text-left',
+                            item.isChecked
+                              ? 'bg-neutral-50 text-neutral-400'
+                              : 'hover:bg-neutral-50'
+                          )}
+                        >
+                          <div
+                            className={clsx(
+                              'w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+                              item.isChecked
+                                ? 'bg-primary-500 border-primary-500'
+                                : 'border-neutral-300'
+                            )}
+                          >
+                            {item.isChecked && <Check className="w-3 h-3 text-white" />}
+                          </div>
+                          <span
+                            className={clsx(
+                              'flex-1 text-sm',
+                              item.isChecked && 'line-through'
+                            )}
+                          >
+                            {item.combinedQuantity && (
+                              <span className="font-medium">{item.combinedQuantity} </span>
+                            )}
+                            {item.ingredientName || 'Unknown item'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : lists.length === 0 ? (
+        <div className="bg-white rounded-xl border border-neutral-200 p-8 text-center">
+          <ShoppingCart className="w-12 h-12 mx-auto mb-4 text-neutral-300" />
+          <h2 className="text-lg font-medium text-neutral-700 mb-2">No shopping lists yet</h2>
+          <p className="text-neutral-500 mb-4">Create a list from your favorite meals</p>
+          <Button variant="primary" onClick={() => setShowNewListForm(true)}>
+            Create Your First List
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }

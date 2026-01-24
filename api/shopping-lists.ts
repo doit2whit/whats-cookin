@@ -110,16 +110,28 @@ async function requireAuth(req: VercelRequest, res: VercelResponse): Promise<Ses
 // ============ COLUMN INDICES ============
 const LIST_COL = { ID: 0, NAME: 1, MEAL_IDS: 2, CREATED_AT: 3, EXPIRES_AT: 4, CREATED_BY: 5 }
 const ITEM_COL = { ID: 0, LIST_ID: 1, INGREDIENT_ID: 2, COMBINED_QUANTITY: 3, STORE_SECTION: 4, IS_CHECKED: 5, DISPLAY_ORDER: 6 }
-const ING_COL = { ID: 0, NAME: 1, DISPLAY_NAME: 2, STORE_SECTION: 3 }
+const ING_COL = { ID: 0, NAME: 1, DISPLAY_NAME: 2, STORE_SECTION: 3, DEFAULT_UNIT: 4, IS_COMMON_ITEM: 5, CREATED_AT: 6, LAST_USED: 7 }
 const MEAL_ING_COL = { ID: 0, MEAL_ID: 1, INGREDIENT_ID: 2, QUANTITY: 3, UNIT: 4, NOTES: 5 }
 
-interface IngredientAmount { ingredientId: string; name: string; displayName: string; storeSection: StoreSection; quantity: number | null; unit: string; notes: string }
+interface IngredientAmount {
+  ingredientId: string
+  name: string
+  displayName: string
+  storeSection: StoreSection
+  isCommonItem: boolean
+  quantity: number | null
+  unit: string
+  notes: string
+}
 
-function combineIngredients(amounts: IngredientAmount[]): Map<string, { display: string; section: StoreSection; name: string }> {
+function combineIngredients(amounts: IngredientAmount[]): Map<string, { display: string; section: StoreSection; name: string; isCommonItem: boolean }> {
   const grouped = new Map<string, IngredientAmount[]>()
-  amounts.forEach(amount => { const existing = grouped.get(amount.ingredientId) || []; grouped.set(amount.ingredientId, [...existing, amount]) })
+  amounts.forEach(amount => {
+    const existing = grouped.get(amount.ingredientId) || []
+    grouped.set(amount.ingredientId, [...existing, amount])
+  })
 
-  const result = new Map<string, { display: string; section: StoreSection; name: string }>()
+  const result = new Map<string, { display: string; section: StoreSection; name: string; isCommonItem: boolean }>()
   grouped.forEach((amountList, ingredientId) => {
     const first = amountList[0]
     const byUnit = new Map<string, number>()
@@ -127,20 +139,28 @@ function combineIngredients(amounts: IngredientAmount[]): Map<string, { display:
 
     amountList.forEach(amount => {
       if (amount.quantity !== null && !amount.notes) {
-        const key = amount.unit || 'count'; byUnit.set(key, (byUnit.get(key) || 0) + amount.quantity)
+        const key = amount.unit || 'count'
+        byUnit.set(key, (byUnit.get(key) || 0) + amount.quantity)
       } else if (amount.notes) {
         const part = amount.quantity ? `${amount.quantity}${amount.unit ? ' ' + amount.unit : ''} (${amount.notes})` : amount.notes
         nonCombinableNotes.push(part)
       } else if (amount.quantity !== null) {
-        const key = amount.unit || 'count'; byUnit.set(key, (byUnit.get(key) || 0) + amount.quantity)
+        const key = amount.unit || 'count'
+        byUnit.set(key, (byUnit.get(key) || 0) + amount.quantity)
       }
     })
 
     const parts: string[] = []
-    byUnit.forEach((qty, unit) => { if (unit === 'count') { parts.push(qty.toString()) } else { parts.push(`${qty} ${unit}`) } })
+    byUnit.forEach((qty, unit) => {
+      if (unit === 'count') {
+        parts.push(qty.toString())
+      } else {
+        parts.push(`${qty} ${unit}`)
+      }
+    })
     parts.push(...nonCombinableNotes)
     const display = parts.length > 0 ? parts.join(' + ') : '—'
-    result.set(ingredientId, { display, section: first.storeSection, name: first.displayName })
+    result.set(ingredientId, { display, section: first.storeSection, name: first.displayName, isCommonItem: first.isCommonItem })
   })
 
   return result
@@ -158,26 +178,85 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // POST /api/shopping-lists?action=generate
   if (req.method === 'POST' && action === 'generate') {
     try {
-      const { mealIds } = req.body
-      if (!mealIds || !Array.isArray(mealIds) || mealIds.length === 0) return res.status(400).json({ error: 'At least one meal ID is required', code: 'VALIDATION' })
-      if (mealIds.length > 4) return res.status(400).json({ error: 'Maximum 4 meals per shopping list', code: 'VALIDATION' })
+      const { mealIds, excludeCommonItems } = req.body
+      const shouldExcludeCommon = excludeCommonItems === true
+
+      if (!mealIds || !Array.isArray(mealIds) || mealIds.length === 0) {
+        return res.status(400).json({ error: 'At least one meal ID is required', code: 'VALIDATION' })
+      }
+      if (mealIds.length > 4) {
+        return res.status(400).json({ error: 'Maximum 4 meals per shopping list', code: 'VALIDATION' })
+      }
 
       const mealIngredientRows = await getRows('MealIngredients')
       const ingredientRows = await getRows('Ingredients')
 
-      const ingredientMap = new Map<string, { name: string; displayName: string; storeSection: StoreSection }>()
+      console.log('MealIngredients rows count:', mealIngredientRows.length)
+      console.log('Ingredients rows count:', ingredientRows.length)
+      console.log('Looking for mealIds:', mealIds)
+
+      // Build ingredient lookup map - using the ingredientId from MealIngredients
+      const ingredientMap = new Map<string, { name: string; displayName: string; storeSection: StoreSection; isCommonItem: boolean }>()
       ingredientRows.slice(1).forEach(row => {
-        ingredientMap.set(row[ING_COL.ID], { name: row[ING_COL.NAME], displayName: row[ING_COL.DISPLAY_NAME] || row[ING_COL.NAME], storeSection: (row[ING_COL.STORE_SECTION] as StoreSection) || 'pantry' })
+        if (row[ING_COL.ID]) {
+          ingredientMap.set(row[ING_COL.ID], {
+            name: row[ING_COL.NAME] || '',
+            displayName: row[ING_COL.DISPLAY_NAME] || row[ING_COL.NAME] || '',
+            storeSection: (row[ING_COL.STORE_SECTION] as StoreSection) || 'pantry',
+            isCommonItem: row[ING_COL.IS_COMMON_ITEM] === 'TRUE'
+          })
+        }
       })
+
+      console.log('Ingredient map size:', ingredientMap.size)
 
       const allAmounts: IngredientAmount[] = []
+
+      // Debug: log meal ingredient rows that match
+      let matchedMealIngRows = 0
+
       mealIngredientRows.slice(1).forEach(row => {
-        const mealId = row[MEAL_ING_COL.MEAL_ID]; if (!mealIds.includes(mealId)) return
-        const ingredientId = row[MEAL_ING_COL.INGREDIENT_ID]; const ingredient = ingredientMap.get(ingredientId); if (!ingredient) return
-        allAmounts.push({ ingredientId, name: ingredient.name, displayName: ingredient.displayName, storeSection: ingredient.storeSection, quantity: row[MEAL_ING_COL.QUANTITY] ? parseFloat(row[MEAL_ING_COL.QUANTITY]) : null, unit: row[MEAL_ING_COL.UNIT] || '', notes: row[MEAL_ING_COL.NOTES] || '' })
+        const mealId = row[MEAL_ING_COL.MEAL_ID]
+
+        if (!mealIds.includes(mealId)) return
+        matchedMealIngRows++
+
+        const ingredientId = row[MEAL_ING_COL.INGREDIENT_ID]
+        let ingredient = ingredientMap.get(ingredientId)
+
+        // If ingredient not found in Ingredients sheet, create a basic entry
+        // This handles cases where MealIngredients references an ingredient that wasn't properly added
+        if (!ingredient) {
+          console.log('Ingredient not found for ID:', ingredientId, '- creating fallback')
+          ingredient = {
+            name: ingredientId, // Use ID as fallback name
+            displayName: ingredientId,
+            storeSection: 'pantry',
+            isCommonItem: false
+          }
+        }
+
+        allAmounts.push({
+          ingredientId,
+          name: ingredient.name,
+          displayName: ingredient.displayName,
+          storeSection: ingredient.storeSection,
+          isCommonItem: ingredient.isCommonItem,
+          quantity: row[MEAL_ING_COL.QUANTITY] ? parseFloat(row[MEAL_ING_COL.QUANTITY]) : null,
+          unit: row[MEAL_ING_COL.UNIT] || '',
+          notes: row[MEAL_ING_COL.NOTES] || ''
+        })
       })
 
-      if (allAmounts.length === 0) return res.status(400).json({ error: 'Selected meals have no ingredients. Add ingredients to your meals first.', code: 'VALIDATION' })
+      console.log('Matched meal ingredient rows:', matchedMealIngRows)
+      console.log('Total amounts collected:', allAmounts.length)
+
+      if (allAmounts.length === 0) {
+        return res.status(400).json({
+          error: 'Selected meals have no ingredients. Add ingredients to your meals first.',
+          code: 'VALIDATION'
+        })
+      }
 
       const combined = combineIngredients(allAmounts)
       const listId = uuid()
@@ -189,15 +268,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const items: any[] = []
       let displayOrder = 0
 
-      SECTION_ORDER.forEach(section => {
-        combined.forEach((data, ingredientId) => {
-          if (data.section !== section) return
+      // Use for...of to ensure we process all items
+      for (const section of SECTION_ORDER) {
+        for (const [ingredientId, data] of combined) {
+          if (data.section !== section) continue
+
+          // Skip common items if requested
+          if (shouldExcludeCommon && data.isCommonItem) continue
+
           const itemIdNew = uuid()
-          items.push({ id: itemIdNew, listId, ingredientId, combinedQuantity: data.display, storeSection: data.section, isChecked: false, displayOrder, ingredientName: data.name })
-          appendRow('ShoppingListItems', [itemIdNew, listId, ingredientId, data.display, data.section, false, displayOrder])
+          items.push({
+            id: itemIdNew,
+            listId,
+            ingredientId,
+            combinedQuantity: data.display,
+            storeSection: data.section,
+            isChecked: false,
+            displayOrder,
+            ingredientName: data.name
+          })
+
+          await appendRow('ShoppingListItems', [itemIdNew, listId, ingredientId, data.display, data.section, false, displayOrder])
           displayOrder++
-        })
-      })
+        }
+      }
+
+      console.log('Final items count:', items.length)
 
       const list = { id: listId, name: '', mealIds, createdAt: now.toISOString(), expiresAt: expiresAt.toISOString(), createdBy: user.email, items }
       return res.status(201).json({ list })
@@ -268,7 +364,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           id: itemRow[ITEM_COL.ID], listId: itemRow[ITEM_COL.LIST_ID], ingredientId: itemRow[ITEM_COL.INGREDIENT_ID],
           combinedQuantity: itemRow[ITEM_COL.COMBINED_QUANTITY], storeSection: itemRow[ITEM_COL.STORE_SECTION],
           isChecked: itemRow[ITEM_COL.IS_CHECKED] === 'TRUE', displayOrder: parseInt(itemRow[ITEM_COL.DISPLAY_ORDER]) || 0,
-          ingredientName: ingredientMap.get(itemRow[ITEM_COL.INGREDIENT_ID]) || 'Unknown',
+          ingredientName: ingredientMap.get(itemRow[ITEM_COL.INGREDIENT_ID]) || itemRow[ITEM_COL.INGREDIENT_ID] || 'Unknown',
         })).sort((a, b) => a.displayOrder - b.displayOrder)
 
         validLists.push({ id: listId, name: row[LIST_COL.NAME], mealIds: JSON.parse(row[LIST_COL.MEAL_IDS] || '[]'), createdAt: row[LIST_COL.CREATED_AT], expiresAt: row[LIST_COL.EXPIRES_AT], createdBy: row[LIST_COL.CREATED_BY], items })

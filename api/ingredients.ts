@@ -70,7 +70,7 @@ async function requireAuth(req: VercelRequest, res: VercelResponse): Promise<Ses
 }
 
 // ============ COLUMN INDICES ============
-const COL = { ID: 0, NAME: 1, DISPLAY_NAME: 2, STORE_SECTION: 3, DEFAULT_UNIT: 4, CREATED_AT: 5, LAST_USED: 6 }
+const COL = { ID: 0, NAME: 1, DISPLAY_NAME: 2, STORE_SECTION: 3, DEFAULT_UNIT: 4, IS_COMMON_ITEM: 5, CREATED_AT: 6, LAST_USED: 7 }
 
 function rowToIngredient(row: string[]): Ingredient {
   return {
@@ -78,6 +78,7 @@ function rowToIngredient(row: string[]): Ingredient {
     displayName: row[COL.DISPLAY_NAME] || row[COL.NAME] || '',
     storeSection: (row[COL.STORE_SECTION] as Ingredient['storeSection']) || 'pantry',
     defaultUnit: (row[COL.DEFAULT_UNIT] as Ingredient['defaultUnit']) || '',
+    isCommonItem: row[COL.IS_COMMON_ITEM] === 'TRUE',
     createdAt: row[COL.CREATED_AT] || '', lastUsed: row[COL.LAST_USED] || null,
   }
 }

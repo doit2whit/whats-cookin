@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import { Star, Heart, Zap, UtensilsCrossed, Users } from 'lucide-react'
+import { Star, Heart, Zap, UtensilsCrossed, Users, Utensils } from 'lucide-react'
 import type { CalendarEntry, Meal } from '@/types'
 
 interface MealCardProps {
@@ -18,27 +18,53 @@ export default function MealCard({ entry, compact = false, onClick }: MealCardPr
     if (meal.mealType === 'friends_house') {
       return <Users className="w-3 h-3" />
     }
+    if (meal.mealType === 'leftovers' || entry.isLeftoverEntry) {
+      return <Utensils className="w-3 h-3" />
+    }
     return null
   }
 
-  const getTypeBgClass = () => {
+  // Chef-based colors for homemade meals
+  const getChefBgClass = () => {
     if (meal.mealType === 'restaurant') {
       return 'bg-restaurant/10 border-restaurant/30 hover:bg-restaurant/20'
     }
     if (meal.mealType === 'friends_house') {
       return 'bg-friends/10 border-friends/30 hover:bg-friends/20'
     }
-    return 'bg-primary-50 border-primary-200 hover:bg-primary-100'
+    if (meal.mealType === 'leftovers' || entry.isLeftoverEntry) {
+      return 'bg-neutral-100 border-neutral-300 hover:bg-neutral-200'
+    }
+    // Chef-based colors for homemade
+    if (meal.chef === 'Hanna') {
+      return 'bg-accent-50 border-accent-200 hover:bg-accent-100' // Blue
+    }
+    if (meal.chef === 'Other') {
+      return 'bg-neutral-100 border-neutral-300 hover:bg-neutral-200' // Grey
+    }
+    // Default (Ian)
+    return 'bg-primary-50 border-primary-200 hover:bg-primary-100' // Green
   }
 
-  const getTypeTextClass = () => {
+  const getChefTextClass = () => {
     if (meal.mealType === 'restaurant') {
       return 'text-restaurant'
     }
     if (meal.mealType === 'friends_house') {
       return 'text-friends'
     }
-    return 'text-primary-700'
+    if (meal.mealType === 'leftovers' || entry.isLeftoverEntry) {
+      return 'text-neutral-600'
+    }
+    // Chef-based colors for homemade
+    if (meal.chef === 'Hanna') {
+      return 'text-accent-700' // Blue
+    }
+    if (meal.chef === 'Other') {
+      return 'text-neutral-600' // Grey
+    }
+    // Default (Ian)
+    return 'text-primary-700' // Green
   }
 
   if (compact) {
@@ -47,13 +73,14 @@ export default function MealCard({ entry, compact = false, onClick }: MealCardPr
         onClick={onClick}
         className={clsx(
           'px-2 py-1 rounded-md border text-xs sm:text-sm truncate cursor-pointer transition-colors',
-          getTypeBgClass(),
-          getTypeTextClass()
+          getChefBgClass(),
+          getChefTextClass()
         )}
       >
         <div className="flex items-center gap-1">
           {getTypeIcon()}
           <span className="truncate font-medium">{meal.name}</span>
+          {entry.isLeftoverEntry && <span className="text-xs opacity-60">(L)</span>}
           {meal.isFavorite && <Heart className="w-3 h-3 text-favorite flex-shrink-0 fill-current" />}
           {meal.isQuick && <Zap className="w-3 h-3 text-quick flex-shrink-0" />}
         </div>
@@ -67,19 +94,20 @@ export default function MealCard({ entry, compact = false, onClick }: MealCardPr
       onClick={onClick}
       className={clsx(
         'p-3 rounded-lg border cursor-pointer transition-colors',
-        getTypeBgClass()
+        getChefBgClass()
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           {getTypeIcon() && (
-            <span className={clsx('flex-shrink-0', getTypeTextClass())}>
+            <span className={clsx('flex-shrink-0', getChefTextClass())}>
               {getTypeIcon()}
             </span>
           )}
-          <span className={clsx('font-medium truncate', getTypeTextClass())}>
+          <span className={clsx('font-medium truncate', getChefTextClass())}>
             {meal.name}
           </span>
+          {entry.isLeftoverEntry && <span className="text-xs opacity-60">(L)</span>}
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">

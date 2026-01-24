@@ -7,7 +7,7 @@ export interface User {
 }
 
 // Meal types
-export type MealType = 'homemade' | 'restaurant' | 'friends_house';
+export type MealType = 'homemade' | 'restaurant' | 'friends_house' | 'leftovers';
 export type Chef = 'Ian' | 'Hanna' | 'Other';
 
 export interface Meal {
@@ -19,11 +19,13 @@ export interface Meal {
   isFavorite: boolean;
   isQuick: boolean;
   notes: string;
+  leftoverNotes: string;
   ianRating: number | null;
   hannaRating: number | null;
   mealType: MealType;
   restaurantName: string;
   friendName: string;
+  effort: number | null; // 1-5 scale
   createdAt: string;
   lastUsed: string | null;
   useCount: number;
@@ -37,11 +39,13 @@ export interface MealFormData {
   isFavorite: boolean;
   isQuick: boolean;
   notes: string;
+  leftoverNotes?: string;
   ianRating: number | null;
   hannaRating: number | null;
   mealType: MealType;
   restaurantName: string;
   friendName: string;
+  effort: number | null;
   ingredients: IngredientEntry[];
 }
 
@@ -55,6 +59,7 @@ export interface Ingredient {
   displayName: string;
   storeSection: StoreSection;
   defaultUnit: Unit;
+  isCommonItem: boolean; // spices/common items flag
   createdAt: string;
   lastUsed: string | null;
 }
@@ -65,6 +70,7 @@ export interface IngredientEntry {
   quantity: number | null;
   unit: Unit;
   storeSection: StoreSection;
+  isCommonItem?: boolean;
   notes?: string;
 }
 
@@ -83,6 +89,7 @@ export interface CalendarEntry {
   date: string; // YYYY-MM-DD
   mealId: string;
   slot: 1 | 2;
+  isLeftoverEntry: boolean; // true if this was leftovers
   createdAt: string;
   createdBy: string;
   meal?: Meal; // Populated when fetching
@@ -106,6 +113,7 @@ export interface ShoppingListItem {
   storeSection: StoreSection;
   isChecked: boolean;
   displayOrder: number;
+  ingredientName?: string;
   ingredient?: Ingredient; // Populated when fetching
 }
 
@@ -114,6 +122,13 @@ export interface CuisineTag {
   id: string;
   name: string;
   useCount: number;
+}
+
+// Meal history for expanded view
+export interface MealHistoryEntry {
+  date: string;
+  chef: Chef;
+  isLeftoverEntry: boolean;
 }
 
 // API response types

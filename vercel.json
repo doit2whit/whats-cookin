@@ -10,6 +10,7 @@
     { "source": "/api/meals/:id", "destination": "/api/meals?id=:id" },
     { "source": "/api/shopping-lists/generate", "destination": "/api/shopping-lists?action=generate" },
     { "source": "/api/shopping-lists/:id/items/:itemId", "destination": "/api/shopping-lists?id=:id&itemId=:itemId" },
-    { "source": "/api/shopping-lists/:id", "destination": "/api/shopping-lists?id=:id" }
+    { "source": "/api/shopping-lists/:id", "destination": "/api/shopping-lists?id=:id" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

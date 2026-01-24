@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { v4 as uuid } from 'uuid'
 import { google } from 'googleapis'
-import { SignJWT, jwtVerify } from 'jose'
+import { jwtVerify } from 'jose'
 import type { CalendarEntry, Meal } from '../src/types'
 
 // ============ SHEETS HELPERS (INLINED) ============
@@ -41,9 +41,7 @@ async function appendRow(sheetName: string, values: (string | number | boolean |
   const sheets = getSheets()
   const spreadsheetId = getSpreadsheetId()
   await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: sheetName,
-    valueInputOption: 'USER_ENTERED',
+    spreadsheetId, range: sheetName, valueInputOption: 'USER_ENTERED',
     requestBody: { values: [values.map(v => v === null ? '' : String(v))] },
   })
 }
@@ -52,9 +50,7 @@ async function updateRow(sheetName: string, rowIndex: number, values: (string | 
   const sheets = getSheets()
   const spreadsheetId = getSpreadsheetId()
   await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${sheetName}!A${rowIndex}:Z${rowIndex}`,
-    valueInputOption: 'USER_ENTERED',
+    spreadsheetId, range: `${sheetName}!A${rowIndex}:Z${rowIndex}`, valueInputOption: 'USER_ENTERED',
     requestBody: { values: [values.map(v => v === null ? '' : String(v))] },
   })
 }
@@ -67,13 +63,7 @@ async function deleteRow(sheetName: string, rowIndex: number): Promise<void> {
   if (!sheet?.properties?.sheetId) throw new Error(`Sheet "${sheetName}" not found`)
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
-    requestBody: {
-      requests: [{
-        deleteDimension: {
-          range: { sheetId: sheet.properties.sheetId, dimension: 'ROWS', startIndex: rowIndex - 1, endIndex: rowIndex },
-        },
-      }],
-    },
+    requestBody: { requests: [{ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: 'ROWS', startIndex: rowIndex - 1, endIndex: rowIndex } } }] },
   })
 }
 
@@ -118,21 +108,28 @@ async function requireAuth(req: VercelRequest, res: VercelResponse): Promise<Ses
 }
 
 // ============ COLUMN INDICES ============
-const ENTRY_COL = { ID: 0, DATE: 1, MEAL_ID: 2, SLOT: 3, CREATED_AT: 4, CREATED_BY: 5 }
-const MEAL_COL = { ID: 0, NAME: 1, CUISINE_TYPE: 2, CHEF: 3, IS_LEFTOVERS: 4, IS_FAVORITE: 5, IS_QUICK: 6, NOTES: 7, IAN_RATING: 8, HANNA_RATING: 9, MEAL_TYPE: 10, RESTAURANT_NAME: 11, FRIEND_NAME: 12, CREATED_AT: 13, LAST_USED: 14, USE_COUNT: 15 }
+const ENTRY_COL = { ID: 0, DATE: 1, MEAL_ID: 2, SLOT: 3, IS_LEFTOVER_ENTRY: 4, CREATED_AT: 5, CREATED_BY: 6 }
+const MEAL_COL = { ID: 0, NAME: 1, CUISINE_TYPE: 2, CHEF: 3, IS_LEFTOVERS: 4, IS_FAVORITE: 5, IS_QUICK: 6, NOTES: 7, LEFTOVER_NOTES: 8, IAN_RATING: 9, HANNA_RATING: 10, MEAL_TYPE: 11, RESTAURANT_NAME: 12, FRIEND_NAME: 13, EFFORT: 14, CREATED_AT: 15, LAST_USED: 16, USE_COUNT: 17 }
 
 function rowToMeal(row: string[]): Meal {
   return {
     id: row[MEAL_COL.ID] || '', name: row[MEAL_COL.NAME] || '',
     cuisineType: row[MEAL_COL.CUISINE_TYPE] ? row[MEAL_COL.CUISINE_TYPE].split(',').filter(Boolean) : [],
     chef: (row[MEAL_COL.CHEF] as Meal['chef']) || 'Ian',
-    isLeftovers: row[MEAL_COL.IS_LEFTOVERS] === 'TRUE', isFavorite: row[MEAL_COL.IS_FAVORITE] === 'TRUE', isQuick: row[MEAL_COL.IS_QUICK] === 'TRUE',
+    isLeftovers: row[MEAL_COL.IS_LEFTOVERS] === 'TRUE',
+    isFavorite: row[MEAL_COL.IS_FAVORITE] === 'TRUE',
+    isQuick: row[MEAL_COL.IS_QUICK] === 'TRUE',
     notes: row[MEAL_COL.NOTES] || '',
+    leftoverNotes: row[MEAL_COL.LEFTOVER_NOTES] || '',
     ianRating: row[MEAL_COL.IAN_RATING] ? parseInt(row[MEAL_COL.IAN_RATING]) : null,
     hannaRating: row[MEAL_COL.HANNA_RATING] ? parseInt(row[MEAL_COL.HANNA_RATING]) : null,
     mealType: (row[MEAL_COL.MEAL_TYPE] as Meal['mealType']) || 'homemade',
-    restaurantName: row[MEAL_COL.RESTAURANT_NAME] || '', friendName: row[MEAL_COL.FRIEND_NAME] || '',
-    createdAt: row[MEAL_COL.CREATED_AT] || '', lastUsed: row[MEAL_COL.LAST_USED] || null, useCount: parseInt(row[MEAL_COL.USE_COUNT]) || 0,
+    restaurantName: row[MEAL_COL.RESTAURANT_NAME] || '',
+    friendName: row[MEAL_COL.FRIEND_NAME] || '',
+    effort: row[MEAL_COL.EFFORT] ? parseInt(row[MEAL_COL.EFFORT]) : null,
+    createdAt: row[MEAL_COL.CREATED_AT] || '',
+    lastUsed: row[MEAL_COL.LAST_USED] || null,
+    useCount: parseInt(row[MEAL_COL.USE_COUNT]) || 0,
   }
 }
 
@@ -174,12 +171,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .filter(row => { const date = row[ENTRY_COL.DATE]; return date >= start && date <= end })
         .map(row => {
           const entry: CalendarEntry & { meal: Meal } = {
-            id: row[ENTRY_COL.ID], date: row[ENTRY_COL.DATE], mealId: row[ENTRY_COL.MEAL_ID],
-            slot: parseInt(row[ENTRY_COL.SLOT]) as 1 | 2, createdAt: row[ENTRY_COL.CREATED_AT], createdBy: row[ENTRY_COL.CREATED_BY],
+            id: row[ENTRY_COL.ID],
+            date: row[ENTRY_COL.DATE],
+            mealId: row[ENTRY_COL.MEAL_ID],
+            slot: parseInt(row[ENTRY_COL.SLOT]) as 1 | 2,
+            isLeftoverEntry: row[ENTRY_COL.IS_LEFTOVER_ENTRY] === 'TRUE',
+            createdAt: row[ENTRY_COL.CREATED_AT] || '',
+            createdBy: row[ENTRY_COL.CREATED_BY] || '',
             meal: mealMap.get(row[ENTRY_COL.MEAL_ID]) || {
               id: row[ENTRY_COL.MEAL_ID], name: 'Unknown Meal', cuisineType: [], chef: 'Ian',
-              isLeftovers: false, isFavorite: false, isQuick: false, notes: '', ianRating: null, hannaRating: null,
-              mealType: 'homemade', restaurantName: '', friendName: '', createdAt: '', lastUsed: null, useCount: 0,
+              isLeftovers: false, isFavorite: false, isQuick: false, notes: '', leftoverNotes: '',
+              ianRating: null, hannaRating: null, mealType: 'homemade', restaurantName: '', friendName: '',
+              effort: null, createdAt: '', lastUsed: null, useCount: 0,
             },
           }
           return entry
@@ -196,7 +199,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // POST /api/calendar
   if (req.method === 'POST') {
     try {
-      const { date, mealId, slot } = req.body
+      const { date, mealId, slot, isLeftoverEntry, leftoverNotes } = req.body
       if (!date || !mealId || !slot) return res.status(400).json({ error: 'Date, mealId, and slot are required', code: 'VALIDATION' })
       if (slot !== 1 && slot !== 2) return res.status(400).json({ error: 'Slot must be 1 or 2', code: 'VALIDATION' })
 
@@ -204,13 +207,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const existingEntry = entryRows.slice(1).find(row => row[ENTRY_COL.DATE] === date && parseInt(row[ENTRY_COL.SLOT]) === slot)
       if (existingEntry) return res.status(400).json({ error: 'This slot already has a meal. Remove it first.', code: 'VALIDATION' })
 
-      const newEntry = { id: uuid(), date, mealId, slot, createdAt: new Date().toISOString(), createdBy: user.email }
-      await appendRow('CalendarEntries', [newEntry.id, newEntry.date, newEntry.mealId, newEntry.slot, newEntry.createdAt, newEntry.createdBy])
+      const newEntry = {
+        id: uuid(),
+        date,
+        mealId,
+        slot,
+        isLeftoverEntry: isLeftoverEntry || false,
+        createdAt: new Date().toISOString(),
+        createdBy: user.email
+      }
+      await appendRow('CalendarEntries', [newEntry.id, newEntry.date, newEntry.mealId, newEntry.slot, newEntry.isLeftoverEntry, newEntry.createdAt, newEntry.createdBy])
 
+      // Update meal's lastUsed (but NOT useCount - that's now calculated dynamically)
+      // Also update leftover notes if provided
       const mealResult = await findRowByColumn('Meals', MEAL_COL.ID, mealId)
       if (mealResult) {
         const meal = rowToMeal(mealResult.row)
-        const updatedRow = [meal.id, meal.name, meal.cuisineType.join(','), meal.chef, meal.isLeftovers, meal.isFavorite, meal.isQuick, meal.notes, meal.ianRating ?? '', meal.hannaRating ?? '', meal.mealType, meal.restaurantName, meal.friendName, meal.createdAt, new Date().toISOString(), meal.useCount + 1]
+        const updatedLeftoverNotes = leftoverNotes
+          ? (meal.leftoverNotes ? meal.leftoverNotes + '\n' + leftoverNotes : leftoverNotes)
+          : meal.leftoverNotes
+
+        const updatedRow = [
+          meal.id, meal.name, meal.cuisineType.join(','), meal.chef,
+          meal.isLeftovers, meal.isFavorite, meal.isQuick, meal.notes, updatedLeftoverNotes,
+          meal.ianRating ?? '', meal.hannaRating ?? '', meal.mealType, meal.restaurantName, meal.friendName,
+          meal.effort ?? '', meal.createdAt, new Date().toISOString(), meal.useCount
+        ]
         await updateRow('Meals', mealResult.rowIndex, updatedRow)
       }
 
