@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Star, Heart, Zap, Plus, Trash2, Search, Flame, Utensils } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { Meal, MealFormData, MealType, Chef, StoreSection, Unit, IngredientEntry, Ingredient } from '@/types'
@@ -42,7 +42,7 @@ export default function MealModal({
   onSave,
   onDelete,
   meal,
-  selectedDate,
+selectedDate: _selectedDate,
   isCalendarEntry,
   onAddAsLeftovers,
 }: MealModalProps) {
