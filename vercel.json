@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/auth/login", "destination": "/api/auth?action=login" },
+    { "source": "/api/auth/callback", "destination": "/api/auth?action=callback" },
     { "source": "/api/auth/logout", "destination": "/api/auth?action=logout" },
     { "source": "/api/auth/session", "destination": "/api/auth?action=session" },
     { "source": "/api/calendar/:id", "destination": "/api/calendar?id=:id" },
